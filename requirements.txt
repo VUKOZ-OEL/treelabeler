@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+laspy
+lazrs
+PyYAML
+numpy

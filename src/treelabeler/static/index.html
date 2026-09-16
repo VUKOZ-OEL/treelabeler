@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TreeLabeler</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "/static/vendor/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div id="datadir-box">
+        <input id="datadir" type="text" placeholder="Data folder path…" />
+        <button id="btn-load-dir" title="Load folder">Load</button>
+      </div>
+      <div id="path">—</div>
+      <div id="progress-big">0/0</div>
+      <div id="categories">
+        <div class="cat-group" id="cat-type"></div>
+        <div class="cat-group" id="cat-quality"></div>
+      </div>
+      <div id="status">
+        <button id="btn-ctx" class="cat-btn" title="Toggle surrounding points (C)"><kbd class="key">C</kbd><span class="cat-label">Context</span></button>
+        <button id="btn-next" title="Next unlabeled (Space)"><kbd class="key key-space">Space</kbd><span class="cat-label">Next ▸</span></button>
+        <button id="btn-export" title="Export CSV">Export</button>
+      </div>
+    </header>
+    <main>
+      <aside id="sidebar">
+        <div id="file-list"></div>
+      </aside>
+      <section id="viewer-wrap">
+        <div id="viewer"></div>
+        <div id="axes-overlay"></div>
+        <div id="height-scale"></div>
+        <div id="hint">mouse: rotate | wheel: zoom | Q W E: species | A S D F: segmentation | Space/Next: skip →</div>
+        <div id="err"></div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

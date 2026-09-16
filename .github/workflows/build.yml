@@ -1,0 +1,15 @@
+name: build
+on: [push, workflow_dispatch]
+jobs:
+  build-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r requirements.txt pyinstaller
+      - run: pyinstaller --clean --noconfirm treelabeler.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: treelabeler-exe
+          path: dist/treelabeler.exe

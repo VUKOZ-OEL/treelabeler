@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Build artifacts (PyInstaller)
+build/
+dist/
+*.spec.bak
+
+# Scratch / working / immutable zones
+# (these paths stay out of the public repo - they hold user data)
+data/
+source_data/
+working/
+archive/
+reports/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.token
+
+# Logs
+*.log
+logs/
