@@ -218,12 +218,15 @@ class Database:
 
     # --- files ------------------------------------------------------------
     def upsert_file(self, path: Path, n_points: int | None) -> int:
-        """Registruje soubor s tree_id z jeho jmena a vrati tree_id."""
+        """Registruje soubor s tree_id z jeho jmena a vrati tree_id.
+        Pokud jiz existuje zaznam s timto tree_id (kdekoliv), aktualizuje
+        abs_path (relocation) a n_points — sjednoceni pri dalsi nahravce."""
         tid = self.parse_section_id(path.name)
         if tid == -1:
             raise ValueError(f"cloud_segmented_-1 nesmi vstoupit do analyzy: {path}")
         if tid is None:
             raise ValueError(f"cloud_segmented_* filename bez cisla: {path.name}")
+        # 1) existuje abs_path → jen aktualizuj n_points
         cur = self.conn.execute(
             "SELECT tree_id FROM files WHERE abs_path = ?", (str(path.resolve()),)
         )
@@ -236,6 +239,19 @@ class Database:
                 )
                 self.conn.commit()
             return row["tree_id"]
+        # 2) existuje tree_id jinde (soubor se presel) → update relocation
+        cur = self.conn.execute(
+            "SELECT tree_id FROM files WHERE tree_id = ?", (tid,)
+        )
+        row = cur.fetchone()
+        if row:
+            self.conn.execute(
+                "UPDATE files SET filename = ?, abs_path = ?, n_points = COALESCE(?, n_points) WHERE tree_id = ?",
+                (path.name, str(path.resolve()), n_points, tid),
+            )
+            self.conn.commit()
+            return tid
+        # 3) novy zaznam
         self.conn.execute(
             "INSERT INTO files (tree_id, filename, abs_path, n_points, imported_at) VALUES (?,?,?,?,?)",
             (tid, path.name, str(path.resolve()), n_points, _now()),
@@ -262,6 +278,17 @@ class Database:
         if row["x_min"] is None or row["y_min"] is None or row["z_min"] is None:
             return None
         return (row["x_min"], row["x_max"], row["y_min"], row["y_max"], row["z_min"], row["z_max"])
+
+    def get_file_path(self, tree_id: int) -> Path | None:
+        """Vrati absolutni cestu k souboru daneho stromu (podle filename ulozeneho
+        v DB pri scanu). Vrati None pokud soubor neexistuje."""
+        row = self.conn.execute(
+            "SELECT abs_path FROM files WHERE tree_id = ?", (tree_id,)
+        ).fetchone()
+        if not row:
+            return None
+        p = Path(row["abs_path"])
+        return p if p.exists() else None
 
     def get_neighbors(self, tree_id: int, buffer: float = 1.0) -> list[int]:
         """ID stromu, jejichz MRIZKA (pavodni bbox) intersectuje s bbox targetu

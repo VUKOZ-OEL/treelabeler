@@ -117,8 +117,8 @@ def load_context_for_tree(
 
     segments = []
     for nid in neighbors:
-        p = data_dir / f"cloud_segmented_{nid}.laz"
-        if not p.exists():
+        p = db.get_file_path(nid)
+        if p is None:
             continue
         las = laspy.read(str(p))
         x = np.asarray(las.x, dtype=np.float64)
@@ -146,8 +146,12 @@ def load_context_for_tree(
             })
 
     background = None
-    bg_path = data_dir / "cloud_segmented_-1.laz"
-    if bg_path.exists() and target:
+    bg_path = None
+    for cand in data_dir.iterdir():
+        if db.parse_section_id(cand.name) == -1 and cand.suffix.lower() in (".laz", ".las"):
+            bg_path = cand
+            break
+    if bg_path is not None and target:
         las = laspy.read(str(bg_path))
         x = np.asarray(las.x, dtype=np.float64)
         y = np.asarray(las.y, dtype=np.float64)

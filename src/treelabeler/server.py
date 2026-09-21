@@ -77,32 +77,67 @@ def _can_write(path: Path) -> bool:
         return False
 
 
+def _find_treelabeler_db(data_dir: Path) -> Path | None:
+    """Hleda existujuci treelabeler DB — soubor s tabulkami files/categories/labels.
+    Pouziva se pro uz vyplnene projekty (ovládáme je jako otevřít/znovu otevřít)."""
+    import sqlite3 as _sq
+    wanted = {"files", "categories", "labels"}
+    for f in sorted(data_dir.iterdir()):
+        if f.suffix.lower() not in (".db", ".sqlite"):
+            continue
+        if Database.parse_section_id(f.name) == -1:
+            continue
+        try:
+            con = _sq.connect(f"file:{f}?mode=ro", uri=True)
+            tables = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            con.close()
+            if wanted.issubset(tables):
+                return f
+        except _sq.Error:
+            pass
+    return None
+
+
 def _open_db(data_dir: Path) -> tuple[Path, Database]:
     """Vrati (labels_db_path, Database). Pravidla:
 
     1. source_data/ je IMMUTABLE po AGENTS (§4.2). Pokud je data_dir pod
        source_data/, vzdycky zkopirujeme sqlite do working/<dir>_labels/ a
        otevreme KOPENI — zadny zapis se nedostane do source_data.
-    2. Pokud data mimo source_data a raycloudtools sqlite existuje a lze do ni
-       zapisovat → otevreme primo ji (single-file mode, labely u dat).
-    3. Pokud sqlite neni writable, vytvorime vedle `<name>.labels.sqlite` a
-       trees pripojime read-only ATTACHem.
-    4. Pokud trees neni → `<slozka>.db` jako driv.
+    2. Pokud ve slozce existuje treelabeler DB (tabulky files+categories+labels)
+       a lze do ni zapisovat → otevreme primo ji (uzivatelovo pokracovani).
+    3. Pokud existuje raycloudtools sqlite (tabulka trees): writable → otevreme
+       ji primo (single-file); readonly → vlastni `.labels.sqlite` vedle +
+       attach read-only trees.
+    4. Pokud nic z toho neexistuje → vytvorime `<slozka>.db` od nuly.
     """
-    trees_path = _find_external_sqlite(data_dir)
+    # 1) source_data → kopie do working/
     if _is_readonly_source_dir(data_dir):
-        # 1) vzdy pracovat v working/ kopii — nedotknout se source_data
         out_dir = Path.cwd() / "working" / (data_dir.name + "_labels")
         out_dir.mkdir(parents=True, exist_ok=True)
+        trees_path = _find_external_sqlite(data_dir)
+        existing_tl = _find_treelabeler_db(data_dir)
+        if existing_tl is not None:
+            work_copy = out_dir / existing_tl.name
+            if not work_copy.exists() or work_copy.stat().st_size != existing_tl.stat().st_size:
+                work_copy.write_bytes(existing_tl.read_bytes())
+            return work_copy, Database(work_copy, data_dir=data_dir, trees_db_path=None)
         if trees_path is not None:
             work_copy = out_dir / trees_path.name
             if not work_copy.exists() or work_copy.stat().st_size != trees_path.stat().st_size:
                 work_copy.write_bytes(trees_path.read_bytes())
-            # single-file mode proti working kopii — zapisujeme do ni
             return work_copy, Database(work_copy, data_dir=data_dir, trees_db_path=None)
         labels_path = out_dir / f"{data_dir.name}.db"
         return labels_path, Database(labels_path, data_dir=data_dir, trees_db_path=None)
 
+    # 2) treelabeler DB uz existuje (napr. rn_3_trees.db z predesle session) — otevri ji
+    existing_tl = _find_treelabeler_db(data_dir)
+    if existing_tl is not None and _can_write(existing_tl):
+        return existing_tl, Database(existing_tl, data_dir=data_dir, trees_db_path=None)
+
+    # 3) raycloudtools sqlite
+    trees_path = _find_external_sqlite(data_dir)
     if trees_path is not None and _can_write(trees_path):
         return trees_path, Database(trees_path, data_dir=data_dir, trees_db_path=None)
 
