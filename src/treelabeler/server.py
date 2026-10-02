@@ -85,7 +85,9 @@ def _find_treelabeler_db(data_dir: Path) -> Path | None:
     for f in sorted(data_dir.iterdir()):
         if f.suffix.lower() not in (".db", ".sqlite"):
             continue
-        if Database.parse_section_id(f.name) == -1:
+        if f.name.lower().startswith("cloud_segmented_-1") or f.name.lower().startswith("tree_-1"):
+            continue
+        if Database.parse_section_id(f.stem) == -1:
             continue
         try:
             con = _sq.connect(f"file:{f}?mode=ro", uri=True)
@@ -150,10 +152,21 @@ def _open_db(data_dir: Path) -> tuple[Path, Database]:
 
 
 def _scan_dir(db: Database, data_dir: Path, count_points: bool = True) -> int:
+    import time
+    SCAN_STATE["running"] = True
+    SCAN_STATE["current"] = 0
+    SCAN_STATE["current_file"] = ""
+    SCAN_STATE["total"] = 0
+    SCAN_STATE["started_at"] = time.time()
     added = 0
     laz_names = []
+    # spocitat kolik souboru budeme zpracovavat (odhad pro progress)
+    all_files = [f for f in sorted(data_dir.iterdir()) if f.suffix.lower() in (".las", ".laz")]
+    SCAN_STATE["total"] = len(all_files)
     for p in sorted(data_dir.iterdir()):
         if p.suffix.lower() in POINT_EXTS:
+            SCAN_STATE["current"] += 1
+            SCAN_STATE["current_file"] = p.name
             sid = db.parse_section_id(p.name)
             if sid == -1:
                 # cloud_segmented_-1.laz je VYHRADNE zdrojem okolnich bodu.
@@ -171,12 +184,21 @@ def _scan_dir(db: Database, data_dir: Path, count_points: bool = True) -> int:
     # overeni parovani (krok 1) — reportuje se v bootstrap endpointu
     if db.external:
         db.pairing_report = db.verify_pairing(laz_names)
+    SCAN_STATE["current_file"] = "computing bboxes..."
     from .loader import load_bbox_index
     load_bbox_index(data_dir, db)  # preserve bboxes in DB for context overlay
+    SCAN_STATE["running"] = False
+    SCAN_STATE["current_file"] = ""
     return added
 
 
+SCAN_STATE = {"running": False, "current": 0, "total": 0, "current_file": "", "started_at": None}
+
 def create_app(data_dir: Path | None, config_path: Path | None = None) -> FastAPI:
+    SCAN_STATE["running"] = False
+    SCAN_STATE["current"] = 0
+    SCAN_STATE["total"] = 0
+    SCAN_STATE["current_file"] = ""
     cfg_data = load_categories()
     db: Database | None = None
     db_path = None
@@ -226,6 +248,7 @@ def create_app(data_dir: Path | None, config_path: Path | None = None) -> FastAP
             data["categories"] = db.list_categories()
             data["external_db"] = db.external
             data["pairing"] = getattr(db, "pairing_report", None)
+            data["scan_running"] = SCAN_STATE.get("running", False)
         else:
             data["categories"] = cfg.get("categories", [])
         return data
@@ -239,7 +262,18 @@ def create_app(data_dir: Path | None, config_path: Path | None = None) -> FastAP
             app.state.db.close()
         new_db_path, new_db = _open_db(new_dir)
         new_db.sync_categories(app.state.config.get("categories", []))
-        count = _scan_dir(new_db, new_dir, count_points=False)
+        # velky folder: scan in background → progress polling
+        if len(list(new_dir.iterdir())) > 30:
+            import threading
+            threading.Thread(
+                target=_scan_dir,
+                args=(new_db, new_dir),
+                kwargs={"count_points": False},
+                daemon=True,
+            ).start()
+            count = 0
+        else:
+            count = _scan_dir(new_db, new_dir, count_points=False)
         app.state.db = new_db
         app.state.data_dir = new_dir
         app.state.db_path = new_db_path
@@ -397,6 +431,11 @@ def create_app(data_dir: Path | None, config_path: Path | None = None) -> FastAP
             }
         return out
 
+    @app.get("/api/scan-status")
+    def scan_status() -> dict:
+        """Prubeh nacitani souboru (pro UI progress)."""
+        return SCAN_STATE
+
     @app.get("/api/export.csv")
     def export_csv() -> FileResponse:
         if app.state.db is None:
@@ -428,7 +467,28 @@ def create_app(data_dir: Path | None, config_path: Path | None = None) -> FastAP
     def favicon() -> FileResponse:
         return FileResponse(STATIC_DIR / "favicon.ico")
 
-    # pocatecni scan slozky (only if data folder was given)
+    # pocatecni scan:
+    # - male slozky (≤30) — sync ihned (deterministicke pro testy).
+    # - velke slozky (>30) — async scan po startupu -> progress UI ma co sledovat.
+    #   Uvicorn na nem spusti startup event; testy/TestClient ho take obsluhuji,
+    #   ale tam uz mame sync inicializaci v create_app udelanou.
     if app.state.db is not None and app.state.data_dir is not None:
-        _scan_dir(app.state.db, app.state.data_dir, count_points=False)
+        n_files = sum(1 for f in app.state.data_dir.iterdir() if f.suffix.lower() in (".las", ".laz"))
+        if n_files <= 30:
+            _scan_dir(app.state.db, app.state.data_dir, count_points=False)
+
+    @app.on_event("startup")
+    async def _background_initial_scan() -> None:
+        if app.state.db is None or app.state.data_dir is None:
+            return
+        n_files = sum(1 for f in app.state.data_dir.iterdir() if f.suffix.lower() in (".las", ".laz"))
+        if n_files <= 30:
+            return
+        import threading
+        threading.Thread(
+            target=_scan_dir,
+            args=(app.state.db, app.state.data_dir),
+            kwargs={"count_points": False},
+            daemon=True,
+        ).start()
     return app

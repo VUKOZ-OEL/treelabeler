@@ -18,14 +18,21 @@
       </div>
       <div id="path">—</div>
       <div id="progress-big">0/0</div>
-      <div id="categories">
-        <div class="cat-group" id="cat-type"></div>
-        <div class="cat-group" id="cat-quality"></div>
+      <!-- scanning state: banner replaces the rest of the header controls -->
+      <div id="scan-banner" style="display:none">
+        <div id="scan-status">Loading…</div>
+        <div id="scan-bar"><div id="scan-fill"></div></div>
       </div>
-      <div id="status">
-        <button id="btn-ctx" class="cat-btn" title="Toggle surrounding points (C)"><kbd class="key">C</kbd><span class="cat-label">Context</span></button>
-        <button id="btn-next" title="Next unlabeled (Space)"><kbd class="key key-space">Space</kbd><span class="cat-label">Next ▸</span></button>
-        <button id="btn-export" title="Export CSV">Export</button>
+      <div id="header-controls">
+        <div id="categories">
+          <div class="cat-group" id="cat-type"></div>
+          <div class="cat-group" id="cat-quality"></div>
+        </div>
+        <div id="status">
+          <button id="btn-ctx" class="cat-btn" title="Toggle surrounding points (C)"><kbd class="key">C</kbd><span class="cat-label">Context</span></button>
+          <button id="btn-next" title="Next unlabeled (Space)"><kbd class="key key-space">Space</kbd><span class="cat-label">Next ▸</span></button>
+          <button id="btn-export" title="Export CSV">Export</button>
+        </div>
       </div>
     </header>
     <main>

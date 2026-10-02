@@ -461,6 +461,37 @@ function refreshCatButtons() {
   });
 }
 
+// --- scan progress -------------------------------------------------------
+let scanTimer = null;
+function startScanPolling() {
+  if (scanTimer) return;
+  const banner = $('#scan-banner');
+  const status = $('#scan-status');
+  const fillEl = $('#scan-fill');
+  const controls = $('#header-controls');
+  banner.style.display = 'flex';
+  controls.classList.add('hidden');
+  scanTimer = setInterval(async () => {
+    try {
+      const st = await fetch('/api/scan-status').then((r) => r.json());
+      if (!st.running) {
+        clearInterval(scanTimer); scanTimer = null;
+        banner.style.display = 'none';
+        controls.classList.remove('hidden');
+        await refreshFiles();
+        renderFileList();
+        return;
+      }
+      const cur = st.current, tot = st.total;
+      const pct = tot ? Math.round((cur / tot) * 100) : 0;
+      status.textContent = st.current_file
+        ? `${cur}/${tot}: ${st.current_file}`
+        : (tot ? `Preparing: ${tot} files…` : 'Preparing scan…');
+      fillEl.style.width = pct + '%';
+    } catch (e) { /* best-effort polling */ }
+  }, 200);
+}
+
 function renderFileList() {
   const wrap = $('#file-list');
   const scrollPos = wrap.scrollTop;   // zachovat pozici scrollu i u stovek souborů
@@ -520,6 +551,7 @@ async function bootstrap() {
   state.groups = data.groups || [];
   state.progress = data.progress;
   $('#datadir').value = data.data_dir;
+  if (data.data_dir) startScanPolling();
 
   renderCategories();
   renderFileList();
@@ -657,6 +689,7 @@ $('#btn-load-dir').addEventListener('click', async () => {
     showErr('Cannot load folder: ' + msg);
     return;
   }
+  startScanPolling();
   state.selectedType = null;
   state.selectedQuality = null;
   state.ctxVisible = false;
